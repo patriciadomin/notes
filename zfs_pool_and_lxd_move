@@ -1,0 +1,95 @@
+
+movendo um container de um storage pool para o outro com o LXD
+moving a container from one storage pool via LXD
+~ uma pequena mistura de pt_br e inglês: 
+
+```
+sda      8:0    0 136,7G  0 disk 
+├─sda1   8:1    0 124,7G  0 part /
+├─sda2   8:2    0     1K  0 part 
+└─sda5   8:5    0    12G  0 part [SWAP]
+sdb      8:16   0 142,7G  0 disk 
+└─sdb1   8:17   0 142,7G  0 part 
+```
+
+Creating a new ZFS storage pool on a dedicated disk/partition `sdb1`
+Criando uma nova ZFS storage pool em uma partição de disco vazia `sdb1`
+(pode precisar instalar/may need to install `sudo apt -y install zfsutils-linux`
+
+:~$ sudo zpool create lxdstorage /dev/sdb1
+
+= 
+
+```
+Filesystem             Size  Used Avail Use% Mounted on
+...
+lxdstorage             138G  128K  138G   1% /lxdstorage
+```
+
+patriciasd@kurhah:~$ zpool status
+```
+...
+  pool: lxdstorage
+ state: ONLINE
+  scan: none requested
+config:
+
+	NAME        STATE     READ WRITE CKSUM
+	lxdstorage  ONLINE       0     0     0
+	  sdb1      ONLINE       0     0     0
+```
+
+$ lxc storage list
++---------+--------+--------------------------------------------+-------------+---------+
+|  NAME   | DRIVER |                   SOURCE                   | DESCRIPTION | USED BY |
++---------+--------+--------------------------------------------+-------------+---------+
+| default | zfs    | /var/snap/lxd/common/lxd/disks/default.img |             | 3       |
++---------+--------+--------------------------------------------+-------------+---------+
+
+now making it available to LXD (snap-based `snapd   2.51.7    13170  latest/stable  canonical✓  snapd`)
+tornando o novo ZFS storage pool disponível para o LXD: 
+
+
+criando/creating a LXD storage `MAAS` from `lxdstorage` (driver = zfs) 
+
+
+patriciasd@kurhah:~$ lxc storage create maas zfs source=lxdstorage --verbose --debug
+...
+
+
+$ lxc storage list
++---------+--------+--------------------------------------------+-------------+---------+
+|  NAME   | DRIVER |                   SOURCE                   | DESCRIPTION | USED BY |
++---------+--------+--------------------------------------------+-------------+---------+
+| default | zfs    | /var/snap/lxd/common/lxd/disks/default.img |             | 3       |
++---------+--------+--------------------------------------------+-------------+---------+
+| maas    | zfs    | lxdstorage                                 |             | 0       |
++---------+--------+--------------------------------------------+-------------+---------+
+
+
+Agora eu preciso mover um container do `default` para o `maas`, 1o: parar o container: 
+Now I'm going to move the container from `default`to `maas` 1st: stopping it: 
+`lxc stop maas-dev`
+
+and movendo/moving...: 
+
+patriciasd@kurhah:~$ lxc move maas-dev maas-new -s maas --debug --verbose
+
+patriciasd@kurhah:~$ lxc rename maas-new maas-dev
+patriciasd@kurhah:~$ lxc start maas-dev --debug
+
+
+
+Isso foi realizado em um servidor amd64 (O.S.: ubuntu Focal 20.04) e em um ppc64le POWER8 (Ubuntu Impish 21.10) 
+Ambos snap-based LXD. 
+
+agora/now: 
+~$ lxc storage list
++---------+--------+--------------------------------------------+--------------------------------------------------------------------+---------+
+|  NAME   | DRIVER |                   SOURCE                   |                            DESCRIPTION                             | USED BY |
++---------+--------+--------------------------------------------+--------------------------------------------------------------------+---------+
+| default | zfs    | /var/snap/lxd/common/lxd/disks/default.img |                                                                    | 1       |
++---------+--------+--------------------------------------------+--------------------------------------------------------------------+---------+
+| maas    | zfs    | lxdstorage                                 | MAAS instance has a dedicated disk/partition sdb1 (lxdstorage ZFS) | 2       |
++---------+--------+--------------------------------------------+--------------------------------------------------------------------+---------+
+
